@@ -20,8 +20,8 @@ import ui.CustomPopupWindow
 import ui.OnboardingWindow
 import ui.ResponseWindow
 import ui.SettingsWindow
+import ui.TrackChangesEditor
 from aiprovider import GeminiProvider, OllamaProvider, OpenAICompatibleProvider
-from update_checker import UpdateChecker
 
 _ = gettext.gettext
 
@@ -61,6 +61,8 @@ class WritingToolApp(QtWidgets.QApplication):
         self.hotkey_listener = None
         self.paused = False
         self.toggle_action = None
+        self.track_changes_editor = None
+        self.current_option = None
 
         self._ = gettext.gettext
 
@@ -96,9 +98,7 @@ class WritingToolApp(QtWidgets.QApplication):
                 lang = None
             self.change_language(lang)
 
-            # Initialize update checker
-            self.update_checker = UpdateChecker(self)
-            self.update_checker.check_updates_async()
+            # Update checker has been removed
 
         self.recent_triggers = []  # Track recent hotkey triggers
         self.TRIGGER_WINDOW = 1.5  # Time window in seconds
@@ -381,6 +381,10 @@ class WritingToolApp(QtWidgets.QApplication):
         Process the selected writing option in a separate thread.
         """
         logging.debug(f'Processing option: {option}')
+        
+        # Store current option and selected text for track changes editor
+        self.current_option = option
+        self.selected_text = selected_text
 
         # For Summary, Key Points, Table, and empty text custom prompts, create response window
         if (option == 'Custom' and not selected_text.strip()) or self.options[option]['open_in_window']:
@@ -399,10 +403,19 @@ class WritingToolApp(QtWidgets.QApplication):
                         "content": f"Original text to {option.lower()}:\n\n{selected_text}"
                     }
                 ]
-        else:
-            # Clear any existing response window reference for non-window options
+        elif self.options[option].get('use_track_changes', False):
+            # Clear any existing response window reference for track changes options
             if hasattr(self, 'current_response_window'):
                 delattr(self, 'current_response_window')
+            
+            # Show track changes editor immediately with loading state
+            self.show_track_changes_editor_loading(selected_text, option)
+        else:
+            # Clear any existing response window reference for direct replacement options
+            if hasattr(self, 'current_response_window'):
+                delattr(self, 'current_response_window')
+            
+            # Use original direct replacement behavior (no track changes editor)
                 
         threading.Thread(target=self.process_option_thread, args=(option, selected_text, custom_change), daemon=True).start()
 
@@ -455,6 +468,10 @@ class WritingToolApp(QtWidgets.QApplication):
                             QtCore.Q_ARG(str, response)
                         )
                         logging.debug('Invoked set_text on response window')
+                elif self.options[option].get('use_track_changes', False):
+                    logging.debug('Getting response for track changes editor')
+                    self.current_provider.get_response(system_instruction, prompt)
+                    logging.debug('Response processed for track changes')
                 else:
                     logging.debug('Getting response for direct replacement')
                     self.current_provider.get_response(system_instruction, prompt)
@@ -486,7 +503,8 @@ class WritingToolApp(QtWidgets.QApplication):
 
     def replace_text(self, new_text):
         """
-        Replaces the text by pasting in the LLM generated text. With "Key Points" and "Summary", invokes a window with the output instead.
+        Show track changes editor instead of automatically replacing text.
+        For window-based options (Summary, Key Points, etc.), use the original behavior.
         """
         error_message = 'ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST'
 
@@ -509,7 +527,7 @@ class WritingToolApp(QtWidgets.QApplication):
 
             logging.debug('Processing output text')
             try:
-                # For Summary and Key Points, show in response window
+                # For Summary and Key Points, show in response window (original behavior)
                 if hasattr(self, 'current_response_window'):
                     self.current_response_window.append_text(new_text)
                     
@@ -519,22 +537,14 @@ class WritingToolApp(QtWidgets.QApplication):
                             "role": "assistant",
                             "content": self.output_queue.rstrip('\n')
                         })
-                else:
-                    # For other options, use the original clipboard-based replacement
-                    clipboard_backup = pyperclip.paste()
+                elif hasattr(self, 'current_option') and self.options[self.current_option].get('use_track_changes', False):
+                    # For track changes options, update track changes editor with AI response
                     cleaned_text = self.output_queue.rstrip('\n')
-                    pyperclip.copy(cleaned_text)
-                    
-                    kbrd = pykeyboard.Controller()
-                    def press_ctrl_v():
-                        kbrd.press(pykeyboard.Key.ctrl.value)
-                        kbrd.press('v')
-                        kbrd.release('v')
-                        kbrd.release(pykeyboard.Key.ctrl.value)
-
-                    press_ctrl_v()
-                    time.sleep(0.2)
-                    pyperclip.copy(clipboard_backup)
+                    self.update_track_changes_editor(cleaned_text)
+                else:
+                    # For direct replacement options, use original clipboard-based replacement
+                    cleaned_text = self.output_queue.rstrip('\n')
+                    self.apply_final_text(cleaned_text)
 
                 if not hasattr(self, 'current_response_window'):
                     self.output_queue = ""
@@ -543,6 +553,105 @@ class WritingToolApp(QtWidgets.QApplication):
                 logging.error(f'Error processing output: {e}')
         else:
             logging.debug('No new text to process')
+    
+    def show_track_changes_editor(self, original_text, suggested_text, option):
+        """
+        Show the track changes editor for reviewing and approving changes
+        """
+        logging.debug(f'Showing track changes editor for option: {option}')
+        try:
+            self.track_changes_editor = ui.TrackChangesEditor.TrackChangesEditor(
+                original_text, suggested_text, option
+            )
+            self.track_changes_editor.changes_applied.connect(self.apply_final_text)
+            self.track_changes_editor.show()
+        except Exception as e:
+            logging.error(f'Error showing track changes editor: {e}')
+            # Fallback to original behavior if track changes editor fails
+            self.apply_final_text(suggested_text)
+    
+    def show_track_changes_editor_loading(self, original_text, option):
+        """
+        Show the track changes editor immediately with loading state
+        """
+        logging.debug(f'Showing track changes editor with loading state for option: {option}')
+        try:
+            self.track_changes_editor = ui.TrackChangesEditor.TrackChangesEditor(
+                original_text, "", option, loading=True
+            )
+            self.track_changes_editor.changes_applied.connect(self.apply_final_text)
+            self.track_changes_editor.show()
+        except Exception as e:
+            logging.error(f'Error showing track changes editor with loading: {e}')
+    
+    def update_track_changes_editor(self, suggested_text):
+        """
+        Update the track changes editor with the AI response
+        """
+        if hasattr(self, 'track_changes_editor') and self.track_changes_editor:
+            logging.debug('Updating track changes editor with AI response')
+            try:
+                self.track_changes_editor.update_with_suggestion(suggested_text)
+            except Exception as e:
+                logging.error(f'Error updating track changes editor: {e}')
+    
+    def apply_final_text(self, final_text):
+        """
+        Apply the final text after user has accepted/rejected changes
+        Use the exact same mechanism as the original replace_text function
+        """
+        logging.debug(f'Applying final text after track changes review: "{final_text[:50] if final_text else "None"}..."')
+        
+        # Use the exact same logic as the original replace_text function
+        # but bypass the track changes editor and response window logic
+        error_message = 'ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST'
+
+        # Confirm final_text exists and is a string
+        if final_text and isinstance(final_text, str):
+            current_output = final_text.strip()  # Strip whitespace for comparison
+
+            # If the new text is the error message, show a message box
+            if current_output == error_message:
+                self.show_message_signal.emit('Error', 'The text is incompatible with the requested change.')
+                return
+
+            # Check if we're building up to the error message (to prevent partial pasting)
+            if len(current_output) <= len(error_message):
+                clean_current = ''.join(current_output.split())
+                clean_error = ''.join(error_message.split())
+                if clean_current == clean_error[:len(clean_current)]:
+                    return
+
+            logging.debug('Processing final text for replacement')
+            try:
+                # Use the original clipboard-based replacement logic
+                clipboard_backup = pyperclip.paste()
+                cleaned_text = final_text.rstrip('\n')
+                pyperclip.copy(cleaned_text)
+                
+                # Small delay to ensure clipboard is ready
+                time.sleep(0.1)
+                
+                # Paste the text (window focus should be restored naturally since track changes window closed first)
+                kbrd = pykeyboard.Controller()
+                def press_ctrl_v():
+                    kbrd.press(pykeyboard.Key.ctrl.value)
+                    kbrd.press('v')
+                    kbrd.release('v')
+                    kbrd.release(pykeyboard.Key.ctrl.value)
+
+                press_ctrl_v()
+                time.sleep(0.2)
+                
+                # Restore clipboard
+                pyperclip.copy(clipboard_backup)
+                
+                logging.debug('Text replacement completed successfully')
+
+            except Exception as e:
+                logging.error(f'Error processing final text: {e}')
+        else:
+            logging.debug('No final text to process')
 
     def create_tray_icon(self):
         """
