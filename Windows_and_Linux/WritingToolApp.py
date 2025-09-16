@@ -171,7 +171,7 @@ class WritingToolApp(QtWidgets.QApplication):
 
     def load_options(self):
         """
-        Load the options file.
+        Load the options file and migrate old format if needed.
         """
         self.options_path = os.path.join(os.path.dirname(sys.argv[0]), 'options.json')
         logging.debug(f'Loading options from {self.options_path}')
@@ -179,9 +179,64 @@ class WritingToolApp(QtWidgets.QApplication):
             with open(self.options_path, 'r') as f:
                 self.options = json.load(f)
                 logging.debug('Options loaded successfully')
+                
+                # Check if migration is needed (old format with boolean flags)
+                if self._needs_migration():
+                    logging.debug('Migrating options from old format to new format')
+                    self._migrate_options()
+                    self._save_options()
         else:
             logging.debug('Options file not found')
             self.options = None
+    
+    def _needs_migration(self):
+        """
+        Check if the options file needs migration from old boolean format.
+        """
+        if not self.options:
+            return False
+            
+        # Check if any option still uses the old boolean flags
+        for option_name, option_data in self.options.items():
+            if isinstance(option_data, dict):
+                has_old_flags = ('open_in_window' in option_data or 'use_track_changes' in option_data)
+                has_new_format = 'output_mode' in option_data
+                if has_old_flags and not has_new_format:
+                    return True
+        return False
+    
+    def _migrate_options(self):
+        """
+        Migrate options from old boolean format to new output_mode format.
+        """
+        for option_name, option_data in self.options.items():
+            if isinstance(option_data, dict):
+                # Skip if already migrated
+                if 'output_mode' in option_data:
+                    continue
+                    
+                # Determine output_mode based on old boolean flag
+                open_in_window = option_data.get('open_in_window', False)
+                
+                if open_in_window:
+                    output_mode = 'window'
+                else:
+                    output_mode = 'replace'
+                
+                # Add new field and remove old one
+                option_data['output_mode'] = output_mode
+                option_data.pop('open_in_window', None)
+                
+                logging.debug(f'Migrated {option_name} to output_mode: {output_mode}')
+    
+    def _save_options(self):
+        """
+        Save the options file.
+        """
+        if self.options and self.options_path:
+            with open(self.options_path, 'w') as f:
+                json.dump(self.options, f, indent=2)
+                logging.debug('Options saved successfully')
 
     def save_config(self, config):
         """
@@ -386,8 +441,11 @@ class WritingToolApp(QtWidgets.QApplication):
         self.current_option = option
         self.selected_text = selected_text
 
-        # For Summary, Key Points, Table, and empty text custom prompts, create response window
-        if (option == 'Custom' and not selected_text.strip()) or self.options[option]['open_in_window']:
+        # Get output mode from the option configuration
+        output_mode = self.options[option].get('output_mode', 'replace')
+        
+        # Handle different output modes
+        if (option == 'Custom' and not selected_text.strip()) or output_mode == 'window':
             window_title = "Chat" if (option == 'Custom' and not selected_text.strip()) else option
             self.current_response_window = self.show_response_window(window_title, selected_text)
             
@@ -403,14 +461,14 @@ class WritingToolApp(QtWidgets.QApplication):
                         "content": f"Original text to {option.lower()}:\n\n{selected_text}"
                     }
                 ]
-        elif self.options[option].get('use_track_changes', False):
+        elif output_mode == 'track_changes':
             # Clear any existing response window reference for track changes options
             if hasattr(self, 'current_response_window'):
                 delattr(self, 'current_response_window')
             
             # Show track changes editor immediately with loading state
             self.show_track_changes_editor_loading(selected_text, option)
-        else:
+        else:  # output_mode == 'replace' or fallback
             # Clear any existing response window reference for direct replacement options
             if hasattr(self, 'current_response_window'):
                 delattr(self, 'current_response_window')
@@ -446,7 +504,10 @@ class WritingToolApp(QtWidgets.QApplication):
 
                 logging.debug(f'Getting response from provider for option: {option}')
 
-                if (option == 'Custom' and not selected_text.strip()) or self.options[option]['open_in_window']:
+                # Get output mode from the option configuration
+                output_mode = self.options[option].get('output_mode', 'replace')
+                
+                if (option == 'Custom' and not selected_text.strip()) or output_mode == 'window':
                     logging.debug('Getting response for window display')
                     response = self.current_provider.get_response(system_instruction, prompt, return_response=True)
                     logging.debug(f'Got response of length: {len(response) if response else 0}')
@@ -468,11 +529,11 @@ class WritingToolApp(QtWidgets.QApplication):
                             QtCore.Q_ARG(str, response)
                         )
                         logging.debug('Invoked set_text on response window')
-                elif self.options[option].get('use_track_changes', False):
+                elif output_mode == 'track_changes':
                     logging.debug('Getting response for track changes editor')
                     self.current_provider.get_response(system_instruction, prompt)
                     logging.debug('Response processed for track changes')
-                else:
+                else:  # output_mode == 'replace' or fallback
                     logging.debug('Getting response for direct replacement')
                     self.current_provider.get_response(system_instruction, prompt)
                     logging.debug('Response processed')
@@ -537,7 +598,7 @@ class WritingToolApp(QtWidgets.QApplication):
                             "role": "assistant",
                             "content": self.output_queue.rstrip('\n')
                         })
-                elif hasattr(self, 'current_option') and self.options[self.current_option].get('use_track_changes', False):
+                elif hasattr(self, 'current_option') and self.options[self.current_option].get('output_mode') == 'track_changes':
                     # For track changes options, update track changes editor with AI response
                     cleaned_text = self.output_queue.rstrip('\n')
                     self.update_track_changes_editor(cleaned_text)

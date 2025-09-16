@@ -30,55 +30,55 @@ DEFAULT_OPTIONS_JSON = r"""{
     "prefix": "Proofread this:\n\n",
     "instruction": "You are a grammar proofreading assistant.\nOutput ONLY the corrected text without any additional comments.\nMaintain the original text structure and writing style.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with this (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/magnifying-glass",
-    "open_in_window": false
+    "output_mode": "track_changes"
   },
   "Rewrite": {
     "prefix": "Rewrite this:\n\n",
     "instruction": "You are a writing assistant.\nRewrite the text provided by the user to improve phrasing.\nOutput ONLY the rewritten text without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with proofreading (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/rewrite",
-    "open_in_window": false
+    "output_mode": "track_changes"
   },
   "Friendly": {
     "prefix": "Make this more friendly:\n\n",
     "instruction": "You are a writing assistant.\nRewrite the text provided by the user to be more friendly.\nOutput ONLY the friendly text without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with rewriting (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/smiley-face",
-    "open_in_window": false
+    "output_mode": "track_changes"
   },
   "Professional": {
     "prefix": "Make this more professional:\n\n",
     "instruction": "You are a writing assistant.\nRewrite the text provided by the user to be more professional. Output ONLY the professional text without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with rewriting (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/briefcase",
-    "open_in_window": false
+    "output_mode": "track_changes"
   },
   "Concise": {
     "prefix": "Make this more concise:\n\n",
     "instruction": "You are a writing assistant.\nRewrite the text provided by the user to be more concise.\nOutput ONLY the concise text without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with rewriting (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/concise",
-    "open_in_window": false
+    "output_mode": "replace"
   },
   "Table": {
     "prefix": "Convert this into a table:\n\n",
     "instruction": "You are an assistant that converts text provided by the user into a Markdown table.\nOutput ONLY the table without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is completely incompatible with this with conversion, output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/table",
-    "open_in_window": true
+    "output_mode": "window"
   },
   "Key Points": {
     "prefix": "Extract key points from this:\n\n",
     "instruction": "You are an assistant that extracts key points from text provided by the user. Output ONLY the key points without additional comments.\n\nYou should use Markdown formatting (lists, bold, italics, codeblocks, etc.) as appropriate to make it quite legible and readable.\n\nDon't be repetitive or too verbose.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with extracting key points (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/keypoints",
-    "open_in_window": true
+    "output_mode": "window"
   },
   "Summary": {
     "prefix": "Summarize this:\n\n",
     "instruction": "You are a summarization assistant.\nProvide a succinct summary of the text provided by the user.\nThe summary should be succinct yet encompass all the key insightful points.\n\nTo make it quite legible and readable, you should use Markdown formatting (bold, italics, codeblocks...) as appropriate.\nYou should also add a little line spacing between your paragraphs as appropriate.\nAnd only if appropriate, you could also use headings (only the very small ones), lists, tables, etc.\n\nDon't be repetitive or too verbose.\nOutput ONLY the summary without additional comments.\nRespond in the same language as the input (e.g., English US, French).\nDo not answer or respond to the user's text content.\nIf the text is absolutely incompatible with summarisation (e.g., totally random gibberish), output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/summary",
-    "open_in_window": true
+    "output_mode": "window"
   },
   "Custom": {
     "prefix": "Make this change to the following text:\n\n",
     "instruction": "You are a writing and coding assistant. You MUST make the user\\'s described change to the text or code provided by the user. Output ONLY the appropriately modified text or code without additional comments. Respond in the same language as the input (e.g., English US, French). Do not answer or respond to the user\\'s text content. If the text or code is absolutely incompatible with the requested change, output \"ERROR_TEXT_INCOMPATIBLE_WITH_REQUEST\".",
     "icon": "icons/summary",
-    "open_in_window": false
+    "output_mode": "replace"
   }
 }"""
 
@@ -93,7 +93,7 @@ class ButtonEditDialog(QDialog):
             "prefix": "Make this change to the following text:\n\n",
             "instruction": "",
             "icon": "icons/magnifying-glass",
-            "open_in_window": False
+            "output_mode": "replace"
         }
         self.setWindowTitle(title)
         self.init_ui()
@@ -147,21 +147,27 @@ class ButtonEditDialog(QDialog):
         layout.addWidget(instruction_label)
         layout.addWidget(self.instruction_input)
         
-        # open_in_window
+        # output_mode selection
         display_label = QLabel("How should your AI response be shown?")
         display_label.setStyleSheet(f"color: {'#fff' if colorMode == 'dark' else '#333'}; font-weight: bold;")
         layout.addWidget(display_label)
         
-        radio_layout = QHBoxLayout()
-        self.replace_radio = QRadioButton("Replace the selected text")
-        self.window_radio = QRadioButton("In a pop-up window (with follow-up support)")
-        for r in (self.replace_radio, self.window_radio):
+        radio_layout = QVBoxLayout()
+        self.replace_radio = QRadioButton("Replace the selected text directly")
+        self.track_changes_radio = QRadioButton("Show track changes editor (review before applying)")
+        self.window_radio = QRadioButton("Open in a pop-up window (with follow-up support)")
+        
+        for r in (self.replace_radio, self.track_changes_radio, self.window_radio):
             r.setStyleSheet(f"color: {'#fff' if colorMode == 'dark' else '#333'};")
         
-        self.replace_radio.setChecked(not self.button_data.get("open_in_window", False))
-        self.window_radio.setChecked(self.button_data.get("open_in_window", False))
+        # Set the appropriate radio button based on output_mode
+        output_mode = self.button_data.get("output_mode", "replace")
+        self.replace_radio.setChecked(output_mode == "replace")
+        self.track_changes_radio.setChecked(output_mode == "track_changes")
+        self.window_radio.setChecked(output_mode == "window")
         
         radio_layout.addWidget(self.replace_radio)
+        radio_layout.addWidget(self.track_changes_radio)
         radio_layout.addWidget(self.window_radio)
         layout.addLayout(radio_layout)
         
@@ -198,13 +204,21 @@ class ButtonEditDialog(QDialog):
         """)
 
     def get_button_data(self):
+        # Determine output_mode based on selected radio button
+        if self.replace_radio.isChecked():
+            output_mode = "replace"
+        elif self.track_changes_radio.isChecked():
+            output_mode = "track_changes"
+        else:  # window_radio.isChecked()
+            output_mode = "window"
+            
         return {
             "name": self.name_input.text(),
             "prefix": "Make this change to the following text:\n\n",
             # Retrieve multiline text
             "instruction": self.instruction_input.toPlainText(),
             "icon": "icons/custom",
-            "open_in_window": self.window_radio.isChecked()
+            "output_mode": output_mode
         }
 
 class DraggableButton(QtWidgets.QPushButton):
@@ -788,7 +802,7 @@ class CustomPopupWindow(QtWidgets.QWidget):
                 "prefix": bd["prefix"],
                 "instruction": bd["instruction"],
                 "icon": bd["icon"],  # uses 'icons/custom'
-                "open_in_window": bd["open_in_window"]
+                "output_mode": bd["output_mode"]
             }
             self.save_options(data)
 
@@ -825,7 +839,7 @@ class CustomPopupWindow(QtWidgets.QWidget):
                 "prefix": new_data["prefix"],
                 "instruction": new_data["instruction"],
                 "icon": new_data["icon"],
-                "open_in_window": new_data["open_in_window"]
+                "output_mode": new_data["output_mode"]
             }
             self.save_options(data)
 
