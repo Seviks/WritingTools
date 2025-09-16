@@ -17,7 +17,7 @@ class StyleManager:
     
     @staticmethod
     def get_button_style() -> str:
-        """Get consistent button styling that matches the app"""
+        """Get consistent button styling"""
         return f"""
             QPushButton {{
                 background-color: {'#444' if colorMode == 'dark' else '#f0f0f0'};
@@ -38,7 +38,7 @@ class StyleManager:
 
     @staticmethod
     def get_success_button_style() -> str:
-        """Get success button styling (green)"""
+        """Get success button styling"""
         return f"""
             QPushButton {{
                 background-color: {'#2e7d32' if colorMode == 'dark' else '#4CAF50'};

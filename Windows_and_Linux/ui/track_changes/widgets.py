@@ -156,7 +156,6 @@ class ChangeItemWidget(QWidget):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(6)
         
-        # Change type icon
         type_icon = QLabel()
         icon_map = {'replace': 'pencil', 'insert': 'plus', 'delete': 'minus'}
         icon_path = get_icon_path(icon_map.get(self.change['type'], 'pencil'))
@@ -167,7 +166,6 @@ class ChangeItemWidget(QWidget):
         
         layout.addWidget(type_icon)
         
-        # Change text display
         text = self._get_change_display_text()
         change_label = QLabel(text)
         change_label.setStyleSheet(f"""
@@ -184,10 +182,8 @@ class ChangeItemWidget(QWidget):
         change_label.setWordWrap(True)
         layout.addWidget(change_label, 1)
         
-        # Status indicator
         layout.addWidget(self._create_status_display())
         
-        # Accept/Reject buttons (only show if pending)
         if self.change['status'] == 'pending':
             accept_btn = IconButtonHelper.create_icon_button(
                 'check', (32, 32), "success", "Accept this change", "✓"
@@ -205,15 +201,14 @@ class ChangeItemWidget(QWidget):
         self.setLayout(layout)
     
     def accept_change(self):
-        """Accept this change"""
-        self.change['status'] = 'accepted'
-        self.change_accepted.emit(self.index)
-        self.update_ui()
+        self._handle_change('accepted', self.change_accepted)
     
     def reject_change(self):
-        """Reject this change"""
-        self.change['status'] = 'rejected'
-        self.change_rejected.emit(self.index)
+        self._handle_change('rejected', self.change_rejected)
+    
+    def _handle_change(self, status: str, signal):
+        self.change['status'] = status
+        signal.emit(self.index)
         self.update_ui()
     
     def update_ui(self):
@@ -277,16 +272,14 @@ class ChangeStatusBar(QWidget):
         """)
         
         layout = QHBoxLayout()
-        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(12)
         
-        # Progress indicator
         self.progress_container = QWidget()
         progress_layout = QHBoxLayout(self.progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
         progress_layout.setSpacing(8)
         
-        # Status icon
         status_icon = QLabel()
         status_icon_path = get_icon_path('list')
         if os.path.exists(status_icon_path):
@@ -307,30 +300,17 @@ class ChangeStatusBar(QWidget):
         
         progress_layout.addWidget(self.status_label)
         layout.addWidget(self.progress_container)
-        
-        # Instructions
-        instructions = QLabel("Click on highlighted text to review individual changes")
-        instructions.setStyleSheet(f"""
-            QLabel {{
-                color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};
-                font-size: 12px;
-                font-family: {UI_FONT_FAMILY};
-                font-style: italic;
-            }}
-        """)
-        
         layout.addStretch()
-        layout.addWidget(instructions)
+        
         self.setLayout(layout)
     
     def update_status(self):
-        """Update status display with clearer formatting"""
+        """Update status display"""
         total = len(self.changes)
         accepted = len([c for c in self.changes if c['status'] == 'accepted'])
         rejected = len([c for c in self.changes if c['status'] == 'rejected'])
         pending = total - accepted - rejected
         
-        # Create status message without colors
         if pending == 0:
             if accepted == total:
                 status_text = f"✓ All {total} changes accepted"
@@ -341,6 +321,5 @@ class ChangeStatusBar(QWidget):
         else:
             status_text = f"{pending} of {total} changes pending review"
         
-        # Use default text color
         default_color = '#ffffff' if colorMode == 'dark' else '#333333'
         self.status_label.setText(f"<span style='color: {default_color}; font-weight: 600;'>{status_text}</span>")

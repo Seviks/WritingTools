@@ -13,7 +13,7 @@ from .constants import (
     UI_FONT_FAMILY, COLORBLIND_COLORS
 )
 from .styles import get_icon_path, StyleManager
-from .widgets import ClickableTextEdit, ChangeItemWidget
+from .widgets import ClickableTextEdit
 from .differ import TextDiffer
 
 
@@ -31,63 +31,13 @@ class InlineChangeEditor(QWidget):
         self.change_widgets = []
         self.init_ui()
     
-    def _create_header_section(self, icon_name: str, title: str, subtitle: str = "") -> QWidget:
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(2, 2, 2, 4)
-        header.setMaximumHeight(25)
-        
-        icon = QLabel()
-        icon_path = get_icon_path(icon_name)
-        if os.path.exists(icon_path):
-            icon.setPixmap(QtGui.QPixmap(icon_path).scaled(
-                18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {'#ffffff' if colorMode == 'dark' else '#333333'};
-                font-weight: 600;
-                font-size: 16px;
-                font-family: 'Segoe UI', 'Arial', sans-serif;
-            }}
-        """)
-        
-        header_layout.addWidget(icon)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        
-        if subtitle:
-            subtitle_label = QLabel(subtitle)
-            subtitle_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};
-                    font-size: 12px;
-                    font-family: 'Segoe UI', 'Arial', sans-serif;
-                }}
-            """)
-            header_layout.addWidget(subtitle_label)
-        
-        return header
-    
     def init_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 4, 0, 0)  # Add top margin for header spacing
-        layout.setSpacing(3)  # Increased spacing for better visual balance
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        # Live preview section
-        preview_header = self._create_header_section(
-            'pencil', 'Live Preview', 'Click on highlighted changes to accept or reject them'
-        )
-        # Ensure header has fixed height to prevent resizing
-        preview_header.setFixedHeight(35)
-        preview_header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        layout.addWidget(preview_header)
-        
-        # Preview text display - height will be dynamically adjusted by main editor
         self.preview_text_display = ClickableTextEdit()
         self.preview_text_display.setReadOnly(True)
-        # Set size policy to allow both horizontal and vertical expansion for resizing
         self.preview_text_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview_text_display.setStyleSheet(StyleManager.get_text_edit_style())
         
@@ -105,26 +55,18 @@ class InlineChangeEditor(QWidget):
         
         self.setLayout(layout)
     
-    def _adjust_preview_height(self):
-        """Height adjustment is now handled by the main editor - this method is kept for compatibility"""
-        pass
-    
     def on_change_accepted(self, index: int):
-        """Handle change acceptance"""
-        self.update_preview_text()
-        self.change_accepted.emit(index)
+        self._handle_change_update(index, self.change_accepted)
     
     def on_change_rejected(self, index: int):
-        """Handle change rejection"""
-        self.update_preview_text()
-        self.change_rejected.emit(index)
+        self._handle_change_update(index, self.change_rejected)
+    
+    def _handle_change_update(self, index: int, signal):
+        self.update_preview_with_inline_changes()
+        signal.emit(index)
     
     def update_all_widgets(self):
         """Update preview text"""
-        self.update_preview_text()
-    
-    def update_preview_text(self):
-        """Update the preview text display based on current change states"""
         self.update_preview_with_inline_changes()
     
     def update_preview_with_inline_changes(self):
@@ -133,22 +75,18 @@ class InlineChangeEditor(QWidget):
         self.preview_text_display.setHtml(html_content)
     
     def accept_change(self, change_index: int):
-        """Accept a specific change"""
-        if 0 <= change_index < len(self.changes):
-            self.changes[change_index]['status'] = 'accepted'
-            self.update_preview_with_inline_changes()
-            if change_index < len(self.change_widgets):
-                self.change_widgets[change_index].hide()
-            self.change_accepted.emit(change_index)
+        self._process_change(change_index, 'accepted', self.change_accepted)
     
     def reject_change(self, change_index: int):
-        """Reject a specific change"""
+        self._process_change(change_index, 'rejected', self.change_rejected)
+    
+    def _process_change(self, change_index: int, status: str, signal):
         if 0 <= change_index < len(self.changes):
-            self.changes[change_index]['status'] = 'rejected'
+            self.changes[change_index]['status'] = status
             self.update_preview_with_inline_changes()
             if change_index < len(self.change_widgets):
                 self.change_widgets[change_index].hide()
-            self.change_rejected.emit(change_index)
+            signal.emit(change_index)
     
     def build_html_with_changes(self) -> str:
         """Build HTML content showing changes inline with data attributes for click detection"""
@@ -198,23 +136,19 @@ class InlineChangeEditor(QWidget):
         
         if change_type == 'replace':
             change_text = f'<span style="background-color: {"#4a3c2a" if colorMode == "dark" else "#fff3cd"}; padding: 2px 4px; border-radius: 3px; margin: 0 1px;" title="Replacement: Click old text to reject, new text to accept">'
-            # Original text (clickable to reject) with strikethrough - using orange for removal
             reject_color = COLORBLIND_COLORS['reject_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_light']
             change_text += f'<a href="change:{change_index}:reject" style="text-decoration: line-through; color: {reject_color}; cursor: pointer; text-decoration-thickness: 2px;">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
             change_text += ' → '
-            # Suggested text (clickable to accept) with emphasis - using blue for addition
             accept_color = COLORBLIND_COLORS['accept_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_light']
             change_text += f'<a href="change:{change_index}:accept" style="font-weight: bold; color: {accept_color}; text-decoration: none; cursor: pointer;">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
             change_text += '</span>'
             html_parts.append(change_text)
         elif change_type == 'insert':
-            # Blue background for insertions (colorblind-friendly)
             accept_bg = COLORBLIND_COLORS['accept_bg_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_bg_light']
             accept_color = COLORBLIND_COLORS['accept_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_light']
             change_text = f'<a href="change:{change_index}:accept" style="background-color: {accept_bg}; color: {accept_color}; padding: 2px 4px; border-radius: 3px; font-weight: bold; text-decoration: none; cursor: pointer; border: 1px dashed {accept_color};" title="Click to accept this addition">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
             html_parts.append(change_text)
         elif change_type == 'delete':
-            # Orange background for deletions (colorblind-friendly)
             reject_bg = COLORBLIND_COLORS['reject_bg_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_bg_light']
             reject_color = COLORBLIND_COLORS['reject_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_light']
             change_text = f'<a href="change:{change_index}:accept" style="background-color: {reject_bg}; color: {reject_color}; padding: 2px 4px; border-radius: 3px; text-decoration: line-through; cursor: pointer; border: 1px dashed {reject_color}; text-decoration-thickness: 2px;" title="Click to accept this deletion">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
@@ -223,11 +157,10 @@ class InlineChangeEditor(QWidget):
     def _escape_html(self, text: str, preserve_inline_newlines: bool = False) -> str:
         """Escape HTML special characters and handle newlines appropriately"""
         escaped = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#x27;')
-        # Convert newlines to <br> for regular text, but preserve them inline for changes
         if preserve_inline_newlines:
-            return escaped  # Keep newlines as-is for inline changes
+            return escaped
         else:
-            return escaped.replace('\n', '<br>')  # Convert to <br> for regular text
+            return escaped.replace('\n', '<br>')
     
     def _wrap_html_content(self, html_parts: List[str]) -> str:
         """Wrap HTML parts in complete HTML structure"""

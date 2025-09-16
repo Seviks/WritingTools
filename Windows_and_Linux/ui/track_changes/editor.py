@@ -10,10 +10,7 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton, QWidget, QSizePolicy, QGraphicsDropShadowEffect
 
 from ui.UIUtils import UIUtils, colorMode
-from .constants import (
-    BUTTON_ICON_SIZE, LOADING_TIMER_INTERVAL, LOADING_MESSAGE_CYCLE,
-    LOADING_MESSAGES, UI_FONT_FAMILY, COLORBLIND_COLORS
-)
+from .constants import BUTTON_ICON_SIZE, UI_FONT_FAMILY, COLORBLIND_COLORS
 from .styles import get_icon_path, StyleManager
 from .differ import TextDiffer
 from .inline_editor import InlineChangeEditor
@@ -32,7 +29,6 @@ class TrackChangesEditor(QWidget):
         self.option_used = option_used
         self.loading = loading
         
-        # Initialize differ and changes
         self.differ = TextDiffer()
         self.changes = []
         
@@ -59,6 +55,9 @@ class TrackChangesEditor(QWidget):
     def _setup_keyboard_shortcuts(self):
         accept_apply_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Return"), self)
         accept_apply_shortcut.activated.connect(self.accept_all_and_apply)
+        
+        escape_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Escape"), self)
+        escape_shortcut.activated.connect(self.close)
     
     def accept_all_and_apply(self):
         self.accept_all_changes()
@@ -67,102 +66,146 @@ class TrackChangesEditor(QWidget):
     def init_ui(self):
         UIUtils.setup_window_and_layout(self)
         
-        layout = QVBoxLayout(self.background)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
+        self.main_layout = QVBoxLayout(self.background)
+        self.main_layout.setContentsMargins(8, 6, 8, 6)
+        self.main_layout.setSpacing(4)
         
         self.background.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
+        self._create_full_ui()
+        
         if self.loading:
             self.changes = []
-        
-        self._create_editor_ui(layout)
-        
-        if self.loading:
-            self._create_loading_overlay()
+            self._show_loading_in_content_area()
+        else:
+            self._show_editor_content()
     
-    def _create_loading_overlay(self):
-        self.loading_overlay = QWidget(self.background)
-        self.loading_overlay.setStyleSheet(f"""
-            QWidget {{
-                background-color: {'rgba(42, 42, 42, 0.9)' if colorMode == 'dark' else 'rgba(255, 255, 255, 0.9)'};
-                border-radius: 8px;
+    def _create_full_ui(self):
+        """Create the complete UI structure"""
+        self.preview_header = self._create_live_preview_header()
+        self.main_layout.addWidget(self.preview_header)
+        
+        self.content_area = QWidget()
+        self.content_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(4)
+        self.main_layout.addWidget(self.content_area)
+        
+        self.status_bar = ChangeStatusBar([])
+        self.status_bar.setFixedHeight(40)
+        self.status_bar.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.main_layout.addWidget(self.status_bar)
+        
+        controls = self._create_control_buttons()
+        controls_widget = QtWidgets.QWidget()
+        controls_widget.setLayout(controls)
+        controls_widget.setFixedHeight(50)
+        self.main_layout.addWidget(controls_widget)
+    
+    def _create_live_preview_header(self) -> QWidget:
+        """Create the Live Preview header"""
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(2, 2, 2, 4)
+        header.setMaximumHeight(25)
+        
+        icon = QLabel()
+        icon_path = get_icon_path('pencil')
+        if os.path.exists(icon_path):
+            icon.setPixmap(QtGui.QPixmap(icon_path).scaled(
+                18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
+        title_label = QLabel('Review Changes')
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {'#ffffff' if colorMode == 'dark' else '#333333'};
+                font-weight: 600;
+                font-size: 16px;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
             }}
         """)
         
-        overlay_layout = QVBoxLayout(self.loading_overlay)
-        overlay_layout.setContentsMargins(40, 40, 40, 40)
-        overlay_layout.setSpacing(15)
+        subtitle_label = QLabel('Click on highlighted changes to accept or reject them')
+        subtitle_label.setStyleSheet(f"""
+            QLabel {{
+                color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};
+                font-size: 12px;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+            }}
+        """)
         
-        self.loading_label = QLabel("Processing with AI")
-        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(icon)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(subtitle_label)
+        
+        header.setFixedHeight(35)
+        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
+        return header
+    
+    def _show_loading_in_content_area(self):
+        """Show thinking animation in the content area"""
+        self._clear_content_area()
+        
+        self.loading_container = QWidget()
+        loading_layout = QHBoxLayout(self.loading_container)
+        loading_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.loading_label = QLabel("Thinking")
         self.loading_label.setStyleSheet(f"""
             QLabel {{
                 color: {'#ffffff' if colorMode == 'dark' else '#333333'};
                 font-size: 18px;
                 font-family: {UI_FONT_FAMILY};
-                font-weight: 600;
-                background-color: transparent;
+                padding: 20px;
             }}
         """)
+        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         
-        subtitle = QLabel("Analyzing your text and generating improvements...")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"""
-            QLabel {{
-                color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};
-                font-size: 14px;
-                font-family: {UI_FONT_FAMILY};
-                background-color: transparent;
-            }}
-        """)
+        loading_inner_container = QWidget()
+        loading_inner_container.setFixedWidth(180)
+        loading_inner_layout = QHBoxLayout(loading_inner_container)
+        loading_inner_layout.setContentsMargins(0, 0, 0, 0)
+        loading_inner_layout.addWidget(self.loading_label)
         
-        overlay_layout.addStretch()
-        overlay_layout.addWidget(self.loading_label)
-        overlay_layout.addWidget(subtitle)
-        overlay_layout.addStretch()
+        loading_layout.addStretch()
+        loading_layout.addWidget(loading_inner_container)
+        loading_layout.addStretch()
         
-        self.loading_overlay.setGeometry(self.background.rect())
-        self.loading_overlay.show()
+        self.content_layout.addWidget(self.loading_container)
         
-        self._start_loading_animation()
-        
-        def update_overlay_position():
-            if hasattr(self, 'loading_overlay') and self.loading_overlay:
-                self.loading_overlay.setGeometry(self.background.rect())
-        
-        self.background.resizeEvent = lambda event: (
-            QWidget.resizeEvent(self.background, event),
-            update_overlay_position()
-        )
+        self._start_thinking_animation()
+        QtCore.QTimer.singleShot(100, self._adjust_window_size_for_loading)
     
-    def _create_editor_ui(self, layout: QVBoxLayout):
+    def _show_editor_content(self):
+        """Show the actual editor content in the content area"""
+        self._clear_content_area()
+        
         try:
             self.editor = InlineChangeEditor(self.changes, self.original_text, self.differ)
             self.editor.change_accepted.connect(self.on_change_accepted)
             self.editor.change_rejected.connect(self.on_change_rejected)
-            layout.addWidget(self.editor)
+            self.content_layout.addWidget(self.editor)
             
-            self.status_bar = ChangeStatusBar(self.changes)
-            # Ensure status bar has fixed height to prevent resizing
-            self.status_bar.setFixedHeight(35)
-            self.status_bar.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
-            layout.addWidget(self.status_bar)
+            self.status_bar.changes = self.changes
+            self.status_bar.update_status()
             
-            controls = self._create_control_buttons()
-            # Create a widget container for the controls to fix its height
-            controls_widget = QtWidgets.QWidget()
-            controls_widget.setLayout(controls)
-            controls_widget.setFixedHeight(50)
-            layout.addWidget(controls_widget)
-            
-            QtCore.QTimer.singleShot(100, self._adjust_window_size)
         except Exception as e:
             logging.error(f"Error creating editor UI: {e}")
-            self._show_error_message(layout, "Failed to create editor interface")
+            self._show_error_message("Failed to create editor interface")
     
-    def _show_error_message(self, layout: QVBoxLayout, message: str):
+    def _clear_content_area(self):
+        """Clear all widgets from the content area"""
+        while self.content_layout.count():
+            child = self.content_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+    
+    def _show_error_message(self, message: str):
+        self._clear_content_area()
+        
         error_label = QLabel(f"Error: {message}")
         error_label.setStyleSheet(f"""
             QLabel {{
@@ -173,42 +216,7 @@ class TrackChangesEditor(QWidget):
                 text-align: center;
             }}
         """)
-        layout.addWidget(error_label)
-    
-    def _create_section_header(self, icon_name: str, title: str) -> QWidget:
-        """Create a consistent section header"""
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        
-        icon = QLabel()
-        icon_path = get_icon_path(icon_name)
-        if os.path.exists(icon_path):
-            icon.setPixmap(QtGui.QPixmap(icon_path).scaled(
-                18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {'#ffffff' if colorMode == 'dark' else '#333333'};
-                font-weight: 600;
-                font-size: 16px;
-                font-family: {UI_FONT_FAMILY};
-            }}
-        """)
-        
-        header_layout.addWidget(icon)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        
-        return header
-    
-    def _create_scroll_area(self) -> QtWidgets.QScrollArea:
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        scroll_area.setStyleSheet(StyleManager.get_scroll_area_style())
-        return scroll_area
+        self.content_layout.addWidget(error_label)
     
     def _add_shadow_effect(self, widget: QWidget):
         shadow = QGraphicsDropShadowEffect()
@@ -217,22 +225,30 @@ class TrackChangesEditor(QWidget):
         shadow.setColor(QtGui.QColor(0, 0, 0, 30 if colorMode == 'light' else 60))
         widget.setGraphicsEffect(shadow)
     
-    def _start_loading_animation(self):
-        self.loading_timer = QTimer()
-        self.loading_dots = 0
-        self.current_message_index = 0
+    def _start_thinking_animation(self):
+        """Start the thinking animation"""
+        self.thinking_timer = QTimer(self)
+        self.thinking_timer.timeout.connect(self._update_thinking_dots)
+        self.thinking_dots_state = 0
+        self.thinking_dots = ["", ".", "..", "..."]
+        self.thinking_timer.setInterval(300)
         
-        def update_loading():
-            dots = "." * (self.loading_dots % 4)
-            message = LOADING_MESSAGES[self.current_message_index]
-            self.loading_label.setText(f"{message}{dots}")
-            self.loading_dots += 1
-            
-            if self.loading_dots % LOADING_MESSAGE_CYCLE == 0:
-                self.current_message_index = (self.current_message_index + 1) % len(LOADING_MESSAGES)
-        
-        self.loading_timer.timeout.connect(update_loading)
-        self.loading_timer.start(LOADING_TIMER_INTERVAL)
+        self.thinking_dots_state = 0
+        self.loading_label.setText("Thinking")
+        self.thinking_timer.start()
+    
+    def _update_thinking_dots(self):
+        """Update the thinking animation dots"""
+        self.thinking_dots_state = (self.thinking_dots_state + 1) % len(self.thinking_dots)
+        dots = self.thinking_dots[self.thinking_dots_state]
+        self.loading_label.setText(f"Thinking{dots}")
+    
+    def _stop_thinking_animation(self):
+        """Stop the thinking animation"""
+        if hasattr(self, 'thinking_timer'):
+            self.thinking_timer.stop()
+        if hasattr(self, 'loading_container'):
+            self.loading_container.hide()
     
     def update_with_suggestion(self, suggested_text: str):
         logging.debug("Updating track changes editor with AI suggestion")
@@ -241,56 +257,14 @@ class TrackChangesEditor(QWidget):
             self.suggested_text = suggested_text
             self.loading = False
             
-            if hasattr(self, 'loading_timer'):
-                self.loading_timer.stop()
-            
-            if hasattr(self, 'loading_overlay') and self.loading_overlay:
-                self.loading_overlay.hide()
-                self.loading_overlay.deleteLater()
-                self.loading_overlay = None
-            
+            self._stop_thinking_animation()
             self.changes = self.differ.get_changes(self.original_text, suggested_text)
-            
-            if hasattr(self, 'editor'):
-                self.editor.changes = self.changes
-                self.editor.update_preview_with_inline_changes()
-            
-            if hasattr(self, 'status_bar'):
-                self.status_bar.changes = self.changes
-                self.status_bar.update_status()
+            self._show_editor_content()
             
         except Exception as e:
             logging.error(f"Error updating with suggestion: {e}")
-            if hasattr(self, 'loading_overlay') and self.loading_overlay:
-                self.loading_overlay.hide()
-                self.loading_overlay.deleteLater()
-                self.loading_overlay = None
-    
-    def _clear_layout(self, layout: QVBoxLayout):
-        for i in reversed(range(layout.count())):
-            child = layout.takeAt(i)
-            if child.widget():
-                child.widget().deleteLater()
-    
-    def _create_loading_control_buttons(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        layout.setContentsMargins(15, 8, 15, 12)
-        layout.setSpacing(12)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_icon_path = get_icon_path('cross')
-        if os.path.exists(cancel_icon_path):
-            cancel_btn.setIcon(QtGui.QIcon(cancel_icon_path))
-            cancel_btn.setIconSize(BUTTON_ICON_SIZE)
-        cancel_btn.setStyleSheet(StyleManager.get_button_style())
-        
-        self._add_shadow_effect(cancel_btn)
-        cancel_btn.clicked.connect(self.close)
-        
-        layout.addStretch()
-        layout.addWidget(cancel_btn)
-        
-        return layout
+            self._stop_thinking_animation()
+            self._show_error_message(f"Error processing suggestion: {e}")
     
     def _create_control_buttons(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -374,108 +348,66 @@ class TrackChangesEditor(QWidget):
     
     def on_change_accepted(self, index: int):
         self.status_bar.update_status()
-        logging.debug(f"Change {index} accepted")
     
     def on_change_rejected(self, index: int):
         self.status_bar.update_status()
-        logging.debug(f"Change {index} rejected")
     
     def accept_all_changes(self):
-        for change in self.changes:
-            if change['status'] == 'pending':
-                change['status'] = 'accepted'
-        
-        self.editor.update_all_widgets()
-        self.status_bar.update_status()
+        self._update_all_changes('accepted')
     
     def reject_all_changes(self):
+        self._update_all_changes('rejected')
+    
+    def _update_all_changes(self, status: str):
         for change in self.changes:
             if change['status'] == 'pending':
-                change['status'] = 'rejected'
-        
+                change['status'] = status
         self.editor.update_all_widgets()
         self.status_bar.update_status()
     
     def apply_selected_changes(self):
         final_text = self.editor.build_current_text()
-        logging.debug(f"Applying final text: '{final_text[:50]}...'")
-        
         self.close()
         QtCore.QTimer.singleShot(100, lambda: self.changes_applied.emit(final_text))
     
-    def build_final_text(self) -> str:
-        return self.editor.build_current_text()
-    
     def _adjust_window_size(self):
-        """Dynamic window sizing that fits content based on actual text measurement"""
+        """Dynamic window sizing that fits content"""
         try:
-            # Get screen dimensions for maximum height calculation
-            screen = QtWidgets.QApplication.screenAt(self.pos())
-            if not screen:
-                screen = QtWidgets.QApplication.primaryScreen()
-            screen_height = screen.geometry().height()
-            max_screen_height = int(screen_height * 0.8)  # 80% of screen height
-            
-            # Calculate text box height dynamically based on content
+            screen = QtWidgets.QApplication.screenAt(self.pos()) or QtWidgets.QApplication.primaryScreen()
+            max_screen_height = int(screen.geometry().height() * 0.8)
             text_box_height = self._calculate_optimal_text_height(max_screen_height)
             
-            # Set the text box height (use setMinimumHeight instead of setFixedHeight for resizing)
             if hasattr(self, 'editor') and hasattr(self.editor, 'preview_text_display'):
                 self.editor.preview_text_display.setMinimumHeight(min(text_box_height, 120))
-                # Allow the text box to expand with window size
                 self.editor.preview_text_display.setSizePolicy(
-                    QtWidgets.QSizePolicy.Policy.Expanding,
-                    QtWidgets.QSizePolicy.Policy.Expanding
-                )
+                    QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
             
-            # Calculate actual window height needed based on UI elements
-            header_height = 35  # Preview header height
-            status_bar_height = 35  # Estimated status bar height
-            control_buttons_height = 50  # Control buttons area height
-            layout_margins = 16  # Top and bottom margins
-            layout_spacing = 12  # Spacing gaps
+            calculated_height = 35 + text_box_height + 40 + 50 + 16 + 12  # header + text + status + controls + margins + spacing
+            window_height = max(240, min(calculated_height, max_screen_height))
             
-            # Calculate total window height needed
-            calculated_height = (header_height + text_box_height + status_bar_height +
-                               control_buttons_height + layout_margins + layout_spacing)
-            
-            # Set reasonable bounds
-            min_window_height = 240
-            window_height = max(min_window_height, min(calculated_height, max_screen_height))
-            
-            # Set window size with dynamic height (fixed width as requested)
             self.resize(600, window_height)
+            self.setMinimumSize(500, max(200, calculated_height - 50))
             
-            # Update minimum size to be content-aware
-            content_aware_min_height = max(200, calculated_height - 50)  # Allow some manual shrinking
-            self.setMinimumSize(500, content_aware_min_height)
-            
-            # Center on screen
+            # Center window
             frame_geometry = self.frameGeometry()
-            screen_center = screen.geometry().center()
-            frame_geometry.moveCenter(screen_center)
+            frame_geometry.moveCenter(screen.geometry().center())
             self.move(frame_geometry.topLeft())
             
         except Exception as e:
             logging.error(f"Error adjusting window size: {e}")
-            # Fallback to smaller default size
             self.resize(600, 300)
             self.setMinimumSize(500, 250)
     
     def _calculate_optimal_text_height(self, max_screen_height: int) -> int:
-        """Calculate optimal text box height based on actual content, properly accounting for newlines"""
+        """Calculate optimal text box height based on content"""
         try:
-            # Use a more reliable approach: estimate based on line count and character count
             text_to_measure = self.original_text or ""
             
-            # If we have changes, use the HTML content for measurement
             if hasattr(self, 'editor') and self.editor and len(self.changes) > 0:
-                # Create temporary widget for accurate measurement
                 temp_widget = QTextEdit()
                 temp_widget.setFixedWidth(560)
                 temp_widget.setHtml(self.editor.build_html_with_changes())
                 
-                # Force layout update
                 temp_widget.document().adjustSize()
                 document_height = int(temp_widget.document().size().height())
                 temp_widget.deleteLater()
@@ -520,48 +452,34 @@ class TrackChangesEditor(QWidget):
             
             return min(base_height + newline_bonus + suggestion_buffer, 500)
     
+    def _adjust_window_size_for_loading(self):
+        """Set window size for loading state"""
+        try:
+            self._adjust_window_size()
+        except Exception:
+            self.resize(600, 400)
+    
     def _setup_resize_handler(self):
-        """Set up resize event handler for dynamic text box sizing"""
+        """Set up resize event handler"""
         self.original_resize_event = self.resizeEvent
         self.resizeEvent = self._handle_resize_event
     
     def _handle_resize_event(self, event):
-        """Handle window resize events to adjust text box size while keeping other elements fixed"""
-        # Call the original resize event first
+        """Handle window resize events"""
         if self.original_resize_event:
             self.original_resize_event(event)
         
-        # Only adjust if we have the editor and it's not in loading state
         if hasattr(self, 'editor') and hasattr(self.editor, 'preview_text_display') and not self.loading:
             self._adjust_text_box_for_window_size()
     
     def _adjust_text_box_for_window_size(self):
-        """Adjust text box size based on current window size while keeping other elements fixed"""
+        """Adjust text box size based on current window size"""
         try:
-            # Get current window height
-            window_height = self.height()
-            
-            # Calculate fixed heights of other UI elements
-            header_height = 35  # Preview header height
-            status_bar_height = 35  # Status bar height
-            control_buttons_height = 50  # Control buttons area height
-            layout_margins = 16  # Top and bottom margins
-            layout_spacing = 12  # Spacing gaps
-            
-            # Calculate available height for text box
-            fixed_elements_height = (header_height + status_bar_height +
-                                   control_buttons_height + layout_margins + layout_spacing)
-            
-            available_height = window_height - fixed_elements_height
-            
-            # Set minimum and maximum bounds for text box
+            fixed_height = 35 + 40 + 50 + 16 + 12  # header + status + controls + margins + spacing
+            available_height = self.height() - fixed_height
             min_text_height = 120
-            max_text_height = max(min_text_height, available_height - 20)  # Leave some buffer
+            max_text_height = max(min_text_height, available_height - 20)
             
-            # Apply the new height to text box
-            new_text_height = max(min_text_height, min(available_height, max_text_height))
-            
-            # Update text box size policy to allow expansion but set a reasonable height
             self.editor.preview_text_display.setMinimumHeight(min_text_height)
             self.editor.preview_text_display.setMaximumHeight(max_text_height)
             

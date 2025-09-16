@@ -2,18 +2,11 @@
 
 from PySide6 import QtCore
 
-# Button and icon sizes
 BUTTON_ICON_SIZE = QtCore.QSize(16, 16)
 
-# Animation settings
-LOADING_TIMER_INTERVAL = 500
-LOADING_MESSAGE_CYCLE = 8
-
-# Grouping thresholds
 MAX_GAP_SIZE = 8
 MERGE_GAP_SIZE = 3
 
-# Colorblind-friendly color scheme
 COLORBLIND_COLORS = {
     'accept_dark': '#64b5f6',
     'accept_light': '#1976d2',
@@ -31,13 +24,4 @@ COLORBLIND_COLORS = {
     'primary_pressed_light': '#1565c0',
 }
 
-# Font settings
 UI_FONT_FAMILY = "'Segoe UI', 'Arial', sans-serif"
-
-# Loading messages
-LOADING_MESSAGES = [
-    "Processing with AI",
-    "Analyzing your text",
-    "Generating improvements",
-    "Preparing changes"
-]
