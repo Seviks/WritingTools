@@ -40,46 +40,50 @@ class TextDiffer:
             return [text]  # Fallback to single token
     
     def _find_sentence_boundaries(self, tokens: List[str]) -> set:
-        """Identify sentence boundaries in the token list, including newlines"""
+        """Identify sentence boundaries in the token list, including newlines - optimized version"""
         boundaries = set()
-        sentence_endings = {'.', '!', '?'}
-        sentence_endings_with_space = {'. ', '! ', '? ', '.\n', '!\n', '?\n'}
         
         for i, token in enumerate(tokens):
             # Newlines are always sentence boundaries
             if token == '\n':
                 boundaries.add(i + 1)
-            # Traditional sentence endings
-            elif (token.strip() in sentence_endings or
-                  token in sentence_endings_with_space):
+            # Check for sentence endings more efficiently
+            elif token and (token.endswith(('.', '!', '?')) or
+                          token in {'. ', '! ', '? ', '.\n', '!\n', '?\n'}):
                 boundaries.add(i + 1)
         return boundaries
     
     def _should_merge_groups(self, current_group: Dict, gap_start: int, gap_end: int,
                            sentence_boundaries: set, tokens: List[str]) -> bool:
-        """Determine if groups should be merged based on gap analysis"""
-        # Check if there's a newline in the gap - if so, never merge
-        for i in range(gap_start, gap_end):
-            if i < len(tokens) and tokens[i] == '\n':
-                return False
-        
-        gap_crosses_sentence = any(
-            boundary > gap_start and boundary <= gap_end
-            for boundary in sentence_boundaries
-        )
+        """Determine if groups should be merged based on gap analysis - optimized version"""
         gap_size = gap_end - gap_start
-        return not gap_crosses_sentence or gap_size <= MERGE_GAP_SIZE
+        
+        # Quick check for small gaps that are always mergeable (unless they contain newlines)
+        if gap_size <= MERGE_GAP_SIZE:
+            # Only scan tokens if gap is small enough to potentially merge
+            return not any(tokens[i] == '\n' for i in range(gap_start, min(gap_end, len(tokens))))
+        
+        # For larger gaps, check sentence boundaries more efficiently
+        # Use set intersection to check if any boundaries fall in the gap range
+        gap_range = set(range(gap_start + 1, gap_end + 1))
+        gap_crosses_sentence = bool(sentence_boundaries & gap_range)
+        
+        # Also check for newlines in larger gaps
+        has_newline = any(tokens[i] == '\n' for i in range(gap_start, min(gap_end, len(tokens))))
+        
+        return not (gap_crosses_sentence or has_newline)
     
     def _group_changes(self, opcodes: List[Tuple], sentence_boundaries: set, original_tokens: List[str]) -> List[Dict]:
-        """Group changes intelligently based on sentence boundaries and newlines"""
+        """Group changes intelligently based on sentence boundaries and newlines - optimized version"""
         grouped_changes = []
         current_group = None
         
         for tag, i1, i2, j1, j2 in opcodes:
             if tag == 'equal':
                 if current_group is not None:
-                    crosses_sentence = any(boundary >= i1 and boundary <= i2
-                                         for boundary in sentence_boundaries)
+                    # Optimized boundary checking using set intersection
+                    gap_range = set(range(i1, i2 + 1))
+                    crosses_sentence = bool(sentence_boundaries & gap_range)
                     is_long_gap = (i2 - i1) > MAX_GAP_SIZE
                     
                     if crosses_sentence or is_long_gap:

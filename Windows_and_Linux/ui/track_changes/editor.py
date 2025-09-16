@@ -46,6 +46,7 @@ class TrackChangesEditor(QWidget):
         self._setup_window()
         self._setup_keyboard_shortcuts()
         self.init_ui()
+        self._setup_resize_handler()
     
     def _setup_window(self):
         self.setWindowTitle("Writing Tools - Review Changes")
@@ -144,10 +145,17 @@ class TrackChangesEditor(QWidget):
             layout.addWidget(self.editor)
             
             self.status_bar = ChangeStatusBar(self.changes)
+            # Ensure status bar has fixed height to prevent resizing
+            self.status_bar.setFixedHeight(35)
+            self.status_bar.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
             layout.addWidget(self.status_bar)
             
             controls = self._create_control_buttons()
-            layout.addLayout(controls)
+            # Create a widget container for the controls to fix its height
+            controls_widget = QtWidgets.QWidget()
+            controls_widget.setLayout(controls)
+            controls_widget.setFixedHeight(50)
+            layout.addWidget(controls_widget)
             
             QtCore.QTimer.singleShot(100, self._adjust_window_size)
         except Exception as e:
@@ -411,9 +419,14 @@ class TrackChangesEditor(QWidget):
             # Calculate text box height dynamically based on content
             text_box_height = self._calculate_optimal_text_height(max_screen_height)
             
-            # Set the text box height
+            # Set the text box height (use setMinimumHeight instead of setFixedHeight for resizing)
             if hasattr(self, 'editor') and hasattr(self.editor, 'preview_text_display'):
-                self.editor.preview_text_display.setFixedHeight(text_box_height)
+                self.editor.preview_text_display.setMinimumHeight(min(text_box_height, 120))
+                # Allow the text box to expand with window size
+                self.editor.preview_text_display.setSizePolicy(
+                    QtWidgets.QSizePolicy.Policy.Expanding,
+                    QtWidgets.QSizePolicy.Policy.Expanding
+                )
             
             # Calculate actual window height needed based on UI elements
             header_height = 35  # Preview header height
@@ -506,3 +519,51 @@ class TrackChangesEditor(QWidget):
             suggestion_buffer = 2 * 22
             
             return min(base_height + newline_bonus + suggestion_buffer, 500)
+    
+    def _setup_resize_handler(self):
+        """Set up resize event handler for dynamic text box sizing"""
+        self.original_resize_event = self.resizeEvent
+        self.resizeEvent = self._handle_resize_event
+    
+    def _handle_resize_event(self, event):
+        """Handle window resize events to adjust text box size while keeping other elements fixed"""
+        # Call the original resize event first
+        if self.original_resize_event:
+            self.original_resize_event(event)
+        
+        # Only adjust if we have the editor and it's not in loading state
+        if hasattr(self, 'editor') and hasattr(self.editor, 'preview_text_display') and not self.loading:
+            self._adjust_text_box_for_window_size()
+    
+    def _adjust_text_box_for_window_size(self):
+        """Adjust text box size based on current window size while keeping other elements fixed"""
+        try:
+            # Get current window height
+            window_height = self.height()
+            
+            # Calculate fixed heights of other UI elements
+            header_height = 35  # Preview header height
+            status_bar_height = 35  # Status bar height
+            control_buttons_height = 50  # Control buttons area height
+            layout_margins = 16  # Top and bottom margins
+            layout_spacing = 12  # Spacing gaps
+            
+            # Calculate available height for text box
+            fixed_elements_height = (header_height + status_bar_height +
+                                   control_buttons_height + layout_margins + layout_spacing)
+            
+            available_height = window_height - fixed_elements_height
+            
+            # Set minimum and maximum bounds for text box
+            min_text_height = 120
+            max_text_height = max(min_text_height, available_height - 20)  # Leave some buffer
+            
+            # Apply the new height to text box
+            new_text_height = max(min_text_height, min(available_height, max_text_height))
+            
+            # Update text box size policy to allow expansion but set a reasonable height
+            self.editor.preview_text_display.setMinimumHeight(min_text_height)
+            self.editor.preview_text_display.setMaximumHeight(max_text_height)
+            
+        except Exception as e:
+            logging.error(f"Error adjusting text box for window size: {e}")

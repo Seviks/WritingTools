@@ -79,12 +79,16 @@ class InlineChangeEditor(QWidget):
         preview_header = self._create_header_section(
             'pencil', 'Live Preview', 'Click on highlighted changes to accept or reject them'
         )
+        # Ensure header has fixed height to prevent resizing
+        preview_header.setFixedHeight(35)
+        preview_header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(preview_header)
         
-        # Preview text display - height will be set by main editor
+        # Preview text display - height will be dynamically adjusted by main editor
         self.preview_text_display = ClickableTextEdit()
         self.preview_text_display.setReadOnly(True)
-        self.preview_text_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Set size policy to allow both horizontal and vertical expansion for resizing
+        self.preview_text_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview_text_display.setStyleSheet(StyleManager.get_text_edit_style())
         
         shadow = QGraphicsDropShadowEffect()
