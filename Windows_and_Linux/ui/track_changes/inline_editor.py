@@ -10,8 +10,7 @@ from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget, QSizePo
 
 from ui.UIUtils import colorMode
 from .constants import (
-    PREVIEW_MIN_HEIGHT, PREVIEW_MAX_HEIGHT, CHANGES_MIN_HEIGHT, CHANGES_MAX_HEIGHT,
-    HTML_CHANGE_STYLES, MONOSPACE_FONT_FAMILY, UI_FONT_FAMILY
+    UI_FONT_FAMILY, COLORBLIND_COLORS
 )
 from .styles import get_icon_path, StyleManager
 from .widgets import ClickableTextEdit, ChangeItemWidget
@@ -33,19 +32,17 @@ class InlineChangeEditor(QWidget):
         self.init_ui()
     
     def _create_header_section(self, icon_name: str, title: str, subtitle: str = "") -> QWidget:
-        """Create a consistent header section"""
         header = QWidget()
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setContentsMargins(2, 2, 2, 4)
+        header.setMaximumHeight(25)
         
-        # Icon
         icon = QLabel()
         icon_path = get_icon_path(icon_name)
         if os.path.exists(icon_path):
             icon.setPixmap(QtGui.QPixmap(icon_path).scaled(
                 18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
-        # Title
         title_label = QLabel(title)
         title_label.setStyleSheet(f"""
             QLabel {{
@@ -60,7 +57,6 @@ class InlineChangeEditor(QWidget):
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         
-        # Subtitle if provided
         if subtitle:
             subtitle_label = QLabel(subtitle)
             subtitle_label.setStyleSheet(f"""
@@ -76,24 +72,21 @@ class InlineChangeEditor(QWidget):
     
     def init_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 4, 0, 0)  # Add top margin for header spacing
+        layout.setSpacing(3)  # Increased spacing for better visual balance
         
         # Live preview section
         preview_header = self._create_header_section(
-            'pencil', 'Live Preview', 'Click highlighted text to accept/reject changes'
+            'pencil', 'Live Preview', 'Click on highlighted changes to accept or reject them'
         )
         layout.addWidget(preview_header)
         
-        # Preview text display
+        # Preview text display - height will be set by main editor
         self.preview_text_display = ClickableTextEdit()
         self.preview_text_display.setReadOnly(True)
-        self.preview_text_display.setMinimumHeight(PREVIEW_MIN_HEIGHT)
-        self.preview_text_display.setMaximumHeight(PREVIEW_MAX_HEIGHT)
-        self.preview_text_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.preview_text_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.preview_text_display.setStyleSheet(StyleManager.get_text_edit_style())
         
-        # Add shadow effect
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(10)
         shadow.setOffset(0, 2)
@@ -104,60 +97,26 @@ class InlineChangeEditor(QWidget):
         self.preview_text_display.change_accepted.connect(self.accept_change)
         self.preview_text_display.change_rejected.connect(self.reject_change)
         self.update_preview_with_inline_changes()
-        layout.addWidget(self.preview_text_display, 0)
-        
-        # Changes section
-        changes_header = self._create_header_section(
-            'list', 'Individual Changes', f'{len(self.changes)} changes'
-        )
-        layout.addWidget(changes_header)
-        
-        # Scroll area for changes
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setMinimumHeight(CHANGES_MIN_HEIGHT)
-        scroll_area.setMaximumHeight(CHANGES_MAX_HEIGHT)
-        scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        scroll_area.setStyleSheet(StyleManager.get_scroll_area_style())
-        
-        changes_widget = QWidget()
-        changes_layout = QVBoxLayout(changes_widget)
-        changes_layout.setContentsMargins(4, 4, 4, 4)
-        changes_layout.setSpacing(1)
-        
-        # Add change widgets
-        for i, change in enumerate(self.changes):
-            change_widget = ChangeItemWidget(change, i)
-            change_widget.change_accepted.connect(self.on_change_accepted)
-            change_widget.change_rejected.connect(self.on_change_rejected)
-            self.change_widgets.append(change_widget)
-            changes_layout.addWidget(change_widget)
-        
-        changes_layout.addStretch()
-        scroll_area.setWidget(changes_widget)
-        layout.addWidget(scroll_area, 1)
+        layout.addWidget(self.preview_text_display, 1)
         
         self.setLayout(layout)
+    
+    def _adjust_preview_height(self):
+        """Height adjustment is now handled by the main editor - this method is kept for compatibility"""
+        pass
     
     def on_change_accepted(self, index: int):
         """Handle change acceptance"""
         self.update_preview_text()
-        if index < len(self.change_widgets):
-            self.change_widgets[index].hide()
         self.change_accepted.emit(index)
     
     def on_change_rejected(self, index: int):
         """Handle change rejection"""
         self.update_preview_text()
-        if index < len(self.change_widgets):
-            self.change_widgets[index].hide()
         self.change_rejected.emit(index)
     
     def update_all_widgets(self):
-        """Update all change widgets"""
-        for widget in self.change_widgets:
-            widget.update_ui()
+        """Update preview text"""
         self.update_preview_text()
     
     def update_preview_text(self):
@@ -230,22 +189,31 @@ class InlineChangeEditor(QWidget):
         # For delete, don't add anything (text is deleted)
     
     def _add_pending_change_html(self, html_parts: List[str], change: Dict, change_index: int):
-        """Add HTML for pending changes with click handlers"""
+        """Add HTML for pending changes with colorblind-friendly styling and click handlers"""
         change_type = change['type']
         
         if change_type == 'replace':
-            change_text = f'<span style="{HTML_CHANGE_STYLES["replace"]}" title="Click struck-through text to reject, bold text to accept">'
-            # Original text (clickable to reject) - preserve inline newlines
-            change_text += f'<a href="change:{change_index}:reject" style="text-decoration: line-through; color: inherit; cursor: pointer;">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
-            # Suggested text (clickable to accept) - preserve inline newlines
-            change_text += f'<a href="change:{change_index}:accept" style="font-weight: bold; color: #007bff; text-decoration: none; cursor: pointer;">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
+            change_text = f'<span style="background-color: {"#4a3c2a" if colorMode == "dark" else "#fff3cd"}; padding: 2px 4px; border-radius: 3px; margin: 0 1px;" title="Replacement: Click old text to reject, new text to accept">'
+            # Original text (clickable to reject) with strikethrough - using orange for removal
+            reject_color = COLORBLIND_COLORS['reject_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_light']
+            change_text += f'<a href="change:{change_index}:reject" style="text-decoration: line-through; color: {reject_color}; cursor: pointer; text-decoration-thickness: 2px;">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
+            change_text += ' → '
+            # Suggested text (clickable to accept) with emphasis - using blue for addition
+            accept_color = COLORBLIND_COLORS['accept_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_light']
+            change_text += f'<a href="change:{change_index}:accept" style="font-weight: bold; color: {accept_color}; text-decoration: none; cursor: pointer;">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
             change_text += '</span>'
             html_parts.append(change_text)
         elif change_type == 'insert':
-            change_text = f'<a href="change:{change_index}:accept" style="{HTML_CHANGE_STYLES["insert"]}" title="Click to accept insertion">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
+            # Blue background for insertions (colorblind-friendly)
+            accept_bg = COLORBLIND_COLORS['accept_bg_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_bg_light']
+            accept_color = COLORBLIND_COLORS['accept_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['accept_light']
+            change_text = f'<a href="change:{change_index}:accept" style="background-color: {accept_bg}; color: {accept_color}; padding: 2px 4px; border-radius: 3px; font-weight: bold; text-decoration: none; cursor: pointer; border: 1px dashed {accept_color};" title="Click to accept this addition">{self._escape_html(change["suggested"], preserve_inline_newlines=True)}</a>'
             html_parts.append(change_text)
         elif change_type == 'delete':
-            change_text = f'<a href="change:{change_index}:accept" style="{HTML_CHANGE_STYLES["delete"]}" title="Click to accept deletion">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
+            # Orange background for deletions (colorblind-friendly)
+            reject_bg = COLORBLIND_COLORS['reject_bg_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_bg_light']
+            reject_color = COLORBLIND_COLORS['reject_dark'] if colorMode == 'dark' else COLORBLIND_COLORS['reject_light']
+            change_text = f'<a href="change:{change_index}:accept" style="background-color: {reject_bg}; color: {reject_color}; padding: 2px 4px; border-radius: 3px; text-decoration: line-through; cursor: pointer; border: 1px dashed {reject_color}; text-decoration-thickness: 2px;" title="Click to accept this deletion">{self._escape_html(change["original"], preserve_inline_newlines=True)}</a>'
             html_parts.append(change_text)
     
     def _escape_html(self, text: str, preserve_inline_newlines: bool = False) -> str:

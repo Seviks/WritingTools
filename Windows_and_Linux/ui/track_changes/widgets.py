@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton, QWidget
 
 from ui.UIUtils import colorMode
-from .constants import SMALL_ICON_SIZE, CHANGE_BUTTON_SIZE, CONTROL_BUTTON_SIZE, UI_FONT_FAMILY
+from .constants import BUTTON_ICON_SIZE, UI_FONT_FAMILY, COLORBLIND_COLORS
 from .styles import get_icon_path, StyleManager
 
 
@@ -25,7 +25,7 @@ class IconButtonHelper:
         
         if os.path.exists(icon_path):
             button.setIcon(QtGui.QIcon(icon_path))
-            button.setIconSize(SMALL_ICON_SIZE)
+            button.setIconSize(BUTTON_ICON_SIZE)
         elif fallback_text:
             button.setText(fallback_text)
         
@@ -57,13 +57,13 @@ class ChangeControlWidget(QtWidgets.QWidget):
         
         # Accept button
         accept_btn = IconButtonHelper.create_icon_button(
-            'check', CONTROL_BUTTON_SIZE, "success", "Accept this change", "✓"
+            'check', (28, 28), "success", "Accept this change", "✓"
         )
         accept_btn.clicked.connect(lambda: self.accepted.emit(self.index))
         
         # Reject button
         reject_btn = IconButtonHelper.create_icon_button(
-            'cross', CONTROL_BUTTON_SIZE, "danger", "Reject this change", "✗"
+            'cross', (28, 28), "danger", "Reject this change", "✗"
         )
         reject_btn.clicked.connect(lambda: self.rejected.emit(self.index))
         
@@ -190,10 +190,10 @@ class ChangeItemWidget(QWidget):
         # Accept/Reject buttons (only show if pending)
         if self.change['status'] == 'pending':
             accept_btn = IconButtonHelper.create_icon_button(
-                'check', CHANGE_BUTTON_SIZE, "success", "Accept this change", "✓"
+                'check', (32, 32), "success", "Accept this change", "✓"
             )
             reject_btn = IconButtonHelper.create_icon_button(
-                'cross', CHANGE_BUTTON_SIZE, "danger", "Reject this change", "✗"
+                'cross', (32, 32), "danger", "Reject this change", "✗"
             )
             
             accept_btn.clicked.connect(self.accept_change)
@@ -269,16 +269,22 @@ class ChangeStatusBar(QWidget):
     def init_ui(self):
         self.setStyleSheet(f"""
             ChangeStatusBar {{
-                background-color: {'#333' if colorMode == 'dark' else '#f8f8f8'};
-                border: 1px solid {'#555' if colorMode == 'dark' else '#e0e0e0'};
-                border-radius: 6px;
-                margin: 5px 0px;
+                background-color: {'#2a2a2a' if colorMode == 'dark' else '#f5f5f5'};
+                border: 1px solid {'#444' if colorMode == 'dark' else '#ddd'};
+                border-radius: 8px;
+                margin: 8px 0px;
             }}
         """)
         
         layout = QHBoxLayout()
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(15)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(12)
+        
+        # Progress indicator
+        self.progress_container = QWidget()
+        progress_layout = QHBoxLayout(self.progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
         
         # Status icon
         status_icon = QLabel()
@@ -287,39 +293,54 @@ class ChangeStatusBar(QWidget):
             status_icon.setPixmap(QtGui.QPixmap(status_icon_path).scaled(
                 16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
-        layout.addWidget(status_icon)
+        progress_layout.addWidget(status_icon)
         
         self.status_label = QLabel()
         self.status_label.setStyleSheet(f"""
             QLabel {{
                 color: {'#ffffff' if colorMode == 'dark' else '#333333'};
-                font-size: 13px;
+                font-size: 14px;
                 font-family: {UI_FONT_FAMILY};
                 font-weight: 500;
             }}
         """)
         
-        layout.addWidget(self.status_label)
+        progress_layout.addWidget(self.status_label)
+        layout.addWidget(self.progress_container)
+        
+        # Instructions
+        instructions = QLabel("Click on highlighted text to review individual changes")
+        instructions.setStyleSheet(f"""
+            QLabel {{
+                color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};
+                font-size: 12px;
+                font-family: {UI_FONT_FAMILY};
+                font-style: italic;
+            }}
+        """)
+        
         layout.addStretch()
+        layout.addWidget(instructions)
         self.setLayout(layout)
     
     def update_status(self):
-        """Update status display with modern formatting"""
+        """Update status display with clearer formatting"""
         total = len(self.changes)
         accepted = len([c for c in self.changes if c['status'] == 'accepted'])
         rejected = len([c for c in self.changes if c['status'] == 'rejected'])
         pending = total - accepted - rejected
         
-        status_parts = []
-        status_parts.append(f"<span style='color: {'#aaaaaa' if colorMode == 'dark' else '#666666'};'>{total} total</span>")
+        # Create status message without colors
+        if pending == 0:
+            if accepted == total:
+                status_text = f"✓ All {total} changes accepted"
+            elif rejected == total:
+                status_text = f"✗ All {total} changes rejected"
+            else:
+                status_text = f"Review complete: {accepted} accepted, {rejected} rejected"
+        else:
+            status_text = f"{pending} of {total} changes pending review"
         
-        if accepted > 0:
-            status_parts.append(f"<span style='color: #4CAF50; font-weight: 600;'>{accepted} accepted</span>")
-        
-        if rejected > 0:
-            status_parts.append(f"<span style='color: #f44336; font-weight: 600;'>{rejected} rejected</span>")
-        
-        if pending > 0:
-            status_parts.append(f"<span style='color: {'#cccccc' if colorMode == 'dark' else '#666666'};'>{pending} pending</span>")
-        
-        self.status_label.setText(" • ".join(status_parts))
+        # Use default text color
+        default_color = '#ffffff' if colorMode == 'dark' else '#333333'
+        self.status_label.setText(f"<span style='color: {default_color}; font-weight: 600;'>{status_text}</span>")
